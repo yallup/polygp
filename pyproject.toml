@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "polygp"
+version = "0.1.0"
+description = "Spectral Mixture GPs with polychord"
+authors = ["David Yallup <david.yallup@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+tinygp = "^0.2.4"
+anesthetic = "^2.4.2"
+pypolychord = "^1.20.0"
+mpi4py = "^3.0.3"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
