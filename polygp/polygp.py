@@ -48,24 +48,18 @@ class SpectralMixtureKernel(tinygp.kernels.Kernel):
 
 class SpectralMixtureProcess(object):
     def __init__(self, *args, **kwargs):
+        self.kernel = SpectralMixtureKernel
         self.mean_function = kwargs.pop("mean_function", null)
 
         self.file_root = kwargs.pop("file_root", "samples")
         self.base_dir = kwargs.pop("base_dir", "chains")
         self.n_components = kwargs.pop("n_components", 1)
+
         self.n_components_prior = UniformPrior(0, self.n_components + 1)
-        # self.n_mean = kwargs.pop("n_mean", 0)
-        # self.mean_functions = mean_functions
-        # self.n_mean = len(self.mean_functions)
-        # self.n_mean_prior = UniformPrior(0, self.n_mean)
 
         self.num_mean_components = kwargs.pop("num_mean_components", 0)
-        self.kernel = SpectralMixtureKernel
-        # self.mean_fn=mean
         self.X = kwargs.pop("X")
         self.Y = kwargs.pop("Y")
-
-        self.Ystd = self.Y.std()
 
         self.fundamental_freq = 1 / (self.X.max() - self.X.min())
         self.sampling_freq = len(self.X) * self.fundamental_freq
@@ -76,75 +70,45 @@ class SpectralMixtureProcess(object):
             UniformPrior(-30, np.log(self.fundamental_freq**2)),
         )
 
-        self.diagonal_guess = self.Y.std() ** 2
         self.noise_prior = GaussianPrior(0, 2)
-        # self.weight_prior = kwargs.pop("weight_prior", ExponentialPrior(1.0))
-
-        self.weight_prior = GaussianPrior(0, 2)
-
+        self.noise_prior=kwargs.pop("noise_prior",GaussianPrior(0, 2))
+        self.weight_prior = kwargs.pop("weight_prior", GaussianPrior(0, 2))
         self.freq_prior = SortedUniformPrior(
             self.fundamental_freq, self.sampling_freq * 0.5
         )
-
         self.init_params, self.fold_function = self.initialize(
             self.n_components
         )
         self.ndims = self.init_params.shape[0]
 
-        self.plot_dir = None
-        self.posterior = None
 
-        @jit
-        def logl(kernel_params, diag, mean):
-            process = tinygp.GaussianProcess(
-                self.kernel(*kernel_params),
-                self.X,
-                mean=partial(self.mean_function, mean),
-                diag=diag,
-            )  # noise=noise.Diagonal(diag*np.ones_like(self.Y)))
-            return process.log_probability(self.Y)
-
-        def predict(x_new, kernel_params, diag, mean):
-            process = tinygp.GaussianProcess(
-                self.kernel(*kernel_params),
-                self.X,
-                mean=partial(self.mean_function, mean),
-                diag=diag,
-            )  # noise=noise.Diagonal(diag*np.ones_like(self.Y)))
-            # process.condition(self.Y, x_new,noise=noise.Diagonal(diag*jnp.ones_like(x_new))) [1].predict()
-            gp = process.condition(self.Y, x_new, diag=diag)[1]
-            # return process.predict(self.Y, x_new,return_var=True)
-            return gp.loc, gp.variance
-
-        # @jit
-
-        def condition(x_new, kernel_params, diag, mean):
-            process = tinygp.GaussianProcess(
-                self.kernel(*kernel_params),
-                self.X,
-                mean=partial(self.mean_function, mean),
-                diag=diag,
-            )
-            gp = process.condition(self.Y, x_new, diag=diag)[1]
-            return gp.sample(jax.random.PRNGKey(0), shape=(100,))
-
-        # self.logl = logl
-        self.predict = predict
-        self.condition = condition
 
     @partial(jit, static_argnums=(0,))
-    def logl(self,kernel_params, diag, mean):
+    def process(self,kernel_params, diag, mean):
             process = tinygp.GaussianProcess(
                 self.kernel(*kernel_params),
                 self.X,
                 mean=partial(self.mean_function, mean),
                 diag=diag,
             )  # noise=noise.Diagonal(diag*np.ones_like(self.Y)))
-            return process.log_probability(self.Y)        
+            return process
 
-    def flat_to_tree(self, theta, X=None):
+    @partial(jit, static_argnums=(0,))
+    def logl(self, kernel_params, diag, mean):
+        return self.process(kernel_params, diag, mean).log_probability(self.Y)
+
+    @partial(jit, static_argnums=(0,))
+    def predict(self, x_new, kernel_params, diag, mean):
+        gp = self.process(kernel_params, diag, mean).condition(self.Y, x_new, diag=diag)[1]
+        return gp.loc, gp.variance
+
+    @partial(jit, static_argnums=(0,))
+    def condition(self, x_new, kernel_params, diag, mean):
+        gp = self.process(kernel_params, diag, mean).condition(self.Y, x_new, diag=diag)[1]
+        return gp.sample(jax.random.PRNGKey(0), shape=(100,))       
+
+    def flat_to_tree(self, theta):
         sample = self.fold_function(theta.astype(jnp.float64))
-        # print(theta)
         # kernel_params = [sample["weight"],np.exp(sample["scale"]), np.concatenate([sample["freq"],[self.sampling_freq]])]
         # kernel_params = [jnp.exp(sample["weight"]),
         #                  jnp.exp(sample["scale"]), sample["freq"]]
@@ -180,8 +144,6 @@ class SpectralMixtureProcess(object):
         sample["kernel_choice"] = self.n_components_prior(
             sample["kernel_choice"]
         )
-        # print(sample)
-        # sample["alpha"] = self.alpha_prior(sample["alpha"])
         t, _ = ravel_pytree(sample)
         return t
 
@@ -203,7 +165,7 @@ class SpectralMixtureProcess(object):
             "weight": "\ln w_{}",
             "scale": "\ln \sigma_{}",
             "freq": "\mu_{}",
-            "diag": "\Sigma",
+            "diag": "\delta",
             "mean_choice": r"\alpha_m",
             "kernel_choice": r"\alpha_k",
             "mean": "\phi_{}",
@@ -224,7 +186,7 @@ class SpectralMixtureProcess(object):
         if kwargs:
             raise TypeError("Unexpected **kwargs: %r" % kwargs)
 
-        settings.nprior = settings.nlive * 100
+        settings.nprior = settings.nlive * 5
         settings.read_resume = False
         settings.write_resume = False
         settings.posteriors = False
@@ -423,12 +385,9 @@ class SpectralMixtureProcess(object):
         if not self.plot_dir:
             self.make_plot_dir()
 
-        kernel_params = ["w", "sigma", "mu", "alpha", "Sigma", "phi"][::-1]
+        kernel_params = ["w", "sigma", "mu", "alpha", "delta", "phi"][::-1]
         for kp in kernel_params:
             idx = [i for i, j in self.posterior.columns if kp in j]
-            # if kp == "phi":
-            #     idx.append("0")
-            # f,a=anesthetic.make_2d_axes(idx,upper=False)
             if kp == "alpha":
                 x = self.posterior[idx].compress(1000)
                 import matplotlib.ticker as ticker
@@ -470,7 +429,7 @@ class SpectralMixtureProcess(object):
                 upper_kwargs=dict(color="black"),
                 lower_kwargs=dict(
                     cmap=plt.cm.magma_r,
-                    levels=[0.997, 0.954, 0.683, 0.32, 0.1],
+                    # levels=[0.997, 0.954, 0.683, 0.32, 0.1],
                 ),
             )
 
