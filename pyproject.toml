@@ -15,3 +15,20 @@ mpi4py = "^3.0.3"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py27']
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+py_version = 27
+
+# flake8 - basic linter
+[tool.flake8]
+count = true
+# compatibility with black
+max-line-length = 88
+ignore = ['E203', 'W503']
+exclude = ['examples']
