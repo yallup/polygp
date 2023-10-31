@@ -18,12 +18,10 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 88
-target-version = ['py27']
 
 [tool.isort]
 profile = "black"
 multi_line_output = 3
-py_version = 27
 
 # flake8 - basic linter
 [tool.flake8]

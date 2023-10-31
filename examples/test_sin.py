@@ -1,9 +1,9 @@
-from polygp.polygp import SpectralMixtureProcess
-
 import os
 
 import numpy as np
 from mpi4py import MPI
+
+from polygp.polygp import SpectralMixtureProcess
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     smp = SpectralMixtureProcess(
         X=x_train,
         Y=y_train,
-        n_components=4,
+        kernel_n_max=4,
         base_dir="chains",
         file_root="toy_sin",
         fac_repeat=2,
@@ -64,6 +64,7 @@ if __name__ == "__main__":
     output = smp.train(nlive=nlive)
 
     if rank == 0:
+
         def xtrans(x):
             return x * (x_cut - x_min) + x_min
 
