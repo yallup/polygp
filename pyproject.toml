@@ -11,6 +11,14 @@ tinygp = "^0.2.4"
 anesthetic = "^2.4.2"
 pypolychord = "^1.20.0"
 mpi4py = "^3.0.3"
+pytest = "^7.3"
+
+# Testing related dependencies - optional
+[tool.poetry.group.test.dependencies]
+pytest = "^7.3"
+pytest-cov = "^4.0"
+[tool.poetry.group.test]
+optional = true
 
 [build-system]
 requires = ["poetry-core"]

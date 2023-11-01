@@ -69,12 +69,14 @@ class SpectralMixtureProcess(object):
 
         self.noise_prior = kwargs.pop("noise_prior", GaussianPrior(0, 2))
         self.weight_prior = kwargs.pop("weight_prior", GaussianPrior(0, 2))
+        self.weight_prior = UniformPrior(0, 2)
         self.freq_prior = SortedUniformPrior(
             self.fundamental_freq, self.sampling_freq * 0.5
         )
         self.mean_prior = kwargs.pop("mean_prior", UniformPrior(-5, 5))
         self.init_params, self.fold_function = self.initialize(self.kernel_n_max)
         self.ndims = self.init_params.shape[0]
+
         # self.plot_dir = kwargs.pop("plot_dir", None)
         self.plot_dir = None
         self.posterior = None
@@ -121,7 +123,7 @@ class SpectralMixtureProcess(object):
         #     sample["freq"][:kernel_choice],
         # ]
         kernel_params = [
-            jnp.exp(sample["weight"][:kernel_choice]),
+            sample["weight"][:kernel_choice],
             jnp.exp(sample["scale"][:kernel_choice]),
             sample["freq"][:kernel_choice],
         ]
@@ -143,13 +145,13 @@ class SpectralMixtureProcess(object):
 
     def initialize(self, n):
         params = {}
-        params["weight"] = np.random.randn(n)
-        params["scale"] = np.random.randn(n)
-        params["freq"] = np.random.randn(n)
-        params["diag"] = np.random.randn()
+        params["weight"] = np.random.rand(n)
+        params["scale"] = np.random.rand(n)
+        params["freq"] = np.random.rand(n)
+        params["diag"] = np.random.rand()
         # params["mean_choice"] = np.random.randn()
-        params["kernel_choice"] = np.random.randn()
-        params["mean"] = np.random.randn(self.mean_n)
+        params["kernel_choice"] = np.random.rand()
+        params["mean"] = np.random.rand(self.mean_n)
         self.param_names, _ = self.create_param_names(params)
         return ravel_pytree(params)
 
@@ -173,12 +175,12 @@ class SpectralMixtureProcess(object):
     def train(self, **kwargs):
         settings = PolyChordSettings(self.ndims, 0)
         settings.nlive = kwargs.pop("nlive", settings.nlive)
-        settings.num_repeats = kwargs.pop("fac_repeat", 5) * self.ndims
+        settings.num_repeats = kwargs.pop("fac_repeat", 2) * self.ndims
+        settings.nprior = kwargs.pop("fac_prior", 5) * settings.nlive
 
         if kwargs:
             raise TypeError("Unexpected **kwargs: %r" % kwargs)
 
-        settings.nprior = settings.nlive * 5
         settings.read_resume = False
         settings.write_resume = False
         settings.posteriors = False
