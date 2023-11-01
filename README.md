@@ -2,7 +2,7 @@
 A wrapper around polychord for fitting spectral kernels with nested sampling
 
 # Installation
-Clone the repository and install with 
+Clone the repository and install with
 
 ```
 pip install .
@@ -18,7 +18,6 @@ python -m pytest
 
 # Usage
 
-A simple sythetic data example is included at `examples/test_sin.py`, it is recommended to run this using mpi.
-This runs a fit of a Spectral Mixture on a dataset with 4 identifiable true frequency modes, the output diagnostic plots are saved in the usual `chains` folder
+An example notebook is included in `tutorial.ipynb`
 
-A set of benchmark real data examples can be run through `examples/benchmark_datasets.py` however some of these take a long time due to the number of data points
+More involved examples are in the `examples` directory
