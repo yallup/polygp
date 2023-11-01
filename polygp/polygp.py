@@ -20,6 +20,7 @@ from pypolychord.priors import GaussianPrior, SortedUniformPrior, UniformPrior
 from scipy.special import logsumexp
 
 from polygp.means import linear, null
+from polygp.priors import ExponentialPrior
 
 warnings.filterwarnings("ignore")
 config.update("jax_enable_x64", True)
@@ -69,7 +70,7 @@ class SpectralMixtureProcess(object):
 
         self.noise_prior = kwargs.pop("noise_prior", GaussianPrior(0, 2))
         self.weight_prior = kwargs.pop("weight_prior", GaussianPrior(0, 2))
-        self.weight_prior = UniformPrior(0, 2)
+        self.weight_prior = ExponentialPrior(1)
         self.freq_prior = SortedUniformPrior(
             self.fundamental_freq, self.sampling_freq * 0.5
         )
@@ -250,8 +251,8 @@ class SpectralMixtureProcess(object):
         self,
         xtest=None,
         ytest=None,
-        xtrans=None,
-        ytrans=None,
+        xtrans=lambda x: x,
+        ytrans=lambda y: y,
         filename=None,
         y_true=None,
     ):
@@ -369,11 +370,39 @@ class SpectralMixtureProcess(object):
             logsumexp(np.asarray(logps), axis=0) - np.log(np.asarray(logps).shape[0])
         ).mean()
 
+    def plot_n_components(self):
+        if not self.plot_dir:
+            self.make_plot_dir()
+        idx = [i for i, j in self.posterior.columns if "alpha" in j]
+        x = self.posterior[idx].compress(100)
+        import matplotlib.ticker as ticker
+
+        heights, bins = np.histogram(x.astype(int), np.arange(0, self.kernel_n_max + 2))
+        f, a = plt.subplots(figsize=[3, 2])
+        a.hist(
+            bins[:-1],
+            weights=heights,
+            bins=np.concatenate([[-0.5], (bins[:-1] + 0.5)]),
+            density=True,
+            edgecolor="black",
+            linewidth=0.5,
+        )
+        a.set_xlabel(r"$\alpha$")
+        a.set_ylabel(r"$P(\alpha)$")
+        # Remove non-integer ticks from x-axis
+        a.xaxis.set_major_locator(ticker.MaxNLocator(integer=True))
+        a.xaxis.set_major_formatter(ticker.FormatStrFormatter("%d"))
+        a.xaxis.set_minor_locator(ticker.NullLocator())
+        a.set_xlim([-0.5, self.kernel_n_max + 0.5])
+        a.set_ylim([0, 1])
+        f.tight_layout(pad=0.1)
+        f.savefig(os.path.join(self.plot_dir, "alpha_hist.pdf"))
+
     def plot_corners(self, true=np.empty(0)):
         if not self.plot_dir:
             self.make_plot_dir()
 
-        kernel_params = ["w", "sigma", "mu", "alpha", "delta", "phi"][::-1]
+        kernel_params = ["w", "sigma", "mu", "delta", "phi"][::-1]
         for kp in kernel_params:
             idx = [i for i, j in self.posterior.columns if kp in j]
             if kp == "alpha":

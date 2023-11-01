@@ -71,8 +71,8 @@ if __name__ == "__main__":
         def ytrans(y):
             return y * y_std + y_mean
 
+        smp.plot_n_components()
         smp.plot_corners()
-
         smp.plot_observed(
             x_test,
             y_test,
