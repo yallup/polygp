@@ -41,10 +41,10 @@ def data_load(filename, datadir):
 
 
 if __name__ == "__main__":
-    base_dir = "chains"
+    base_dir = "chains_ours"
     os.makedirs(base_dir, exist_ok=True)
     datadir = "data"
-    nlive = 50
+    nlive = 100
     results_file = open(os.path.join(base_dir, "results.txt"), "w")
     filenames = sorted(
         os.listdir(datadir),
@@ -75,7 +75,7 @@ if __name__ == "__main__":
                     base_dir=base_dir,
                     file_root=cleaned_filename,
                 )
-                # output = smp.train(nlive=nlive)
+                output = smp.train(nlive=nlive, fac_repeat=2)
                 # params = build_and_train_gp(x_train, y_train)
                 if rank == 0:
                     smp.plot_corners()

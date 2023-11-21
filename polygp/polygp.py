@@ -89,7 +89,7 @@ class SpectralMixtureProcess(object):
         process = tinygp.GaussianProcess(
             self.kernel(*kernel_params),
             self.X,
-            # mean=partial(self.mean_function, mean),
+            mean=partial(self.mean_function, mean),
             diag=diag,
         )  # noise=noise.Diagonal(diag*np.ones_like(self.Y)))
         return process
@@ -135,8 +135,8 @@ class SpectralMixtureProcess(object):
         #                  jnp.exp(sample["scale"]), sample["freq"]]
         # kernel_params = [jnp.exp(sample["weight"]),
         #                  jnp.ones_like(sample["weight"])*1e-5, sample["freq"]]
-        # kernel_choice = sample["kernel_choice"].astype(int)
-        kernel_choice = -1
+        kernel_choice = sample["kernel_choice"].astype(int)
+        # kernel_choice = -1
         # kernel_params = [
         #     jnp.exp(sample["weight"])[:kernel_choice],
         #     (jnp.ones_like(sample["weight"]) * 1e-5)[:kernel_choice],
@@ -148,8 +148,8 @@ class SpectralMixtureProcess(object):
             sample["freq"][:kernel_choice],
         ]
         diag = jnp.exp(sample["diag"])
-        # mean = sample["mean"]
-        mean = 0
+        mean = sample["mean"]
+        # mean = 0
         return kernel_params, diag, mean
 
     def prior(self, theta):
@@ -158,10 +158,10 @@ class SpectralMixtureProcess(object):
         sample["weight"] = self.weight_prior(sample["weight"])
         sample["scale"] = self.scale_prior(sample["scale"])
         sample["freq"] = self.freq_prior(sample["freq"])
-        # sample["mean"] = self.mean_prior(sample["mean"])
+        sample["mean"] = self.mean_prior(sample["mean"])
         sample["diag"] = self.noise_prior(sample["diag"])
         # sample["mean_choice"] = self.n_mean_prior(sample["mean_choice"])
-        # sample["kernel_choice"] = self.kernel_n_prior(sample["kernel_choice"])
+        sample["kernel_choice"] = self.kernel_n_prior(sample["kernel_choice"])
         t, _ = ravel_pytree(sample)
         return t
 
@@ -172,8 +172,8 @@ class SpectralMixtureProcess(object):
         params["freq"] = np.random.rand(n)
         params["diag"] = np.random.rand()
         # params["mean_choice"] = np.random.randn()
-        # params["kernel_choice"] = np.random.rand()
-        # params["mean"] = np.random.rand(self.mean_n)
+        params["kernel_choice"] = np.random.rand()
+        params["mean"] = np.random.rand(self.mean_n)
         self.param_names, _ = self.create_param_names(params)
         return ravel_pytree(params)
 
@@ -361,7 +361,7 @@ class SpectralMixtureProcess(object):
         a.text(
             0.95,
             0.05,
-            r"S20",
+            r"Ours",
             transform=a.transAxes,
             ha="right",
             va="bottom",
