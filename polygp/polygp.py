@@ -19,24 +19,25 @@ from pypolychord import PolyChordSettings, run_polychord
 from pypolychord.priors import GaussianPrior, SortedUniformPrior, UniformPrior
 from scipy.special import logsumexp
 
-from polygp.means import linear, null
+from polygp.means import linear, null, power
 from polygp.priors import ExponentialPrior
 
 warnings.filterwarnings("ignore")
-config.update("jax_enable_x64", True)
+# config.update("jax_enable_x64", True)
 # plt.style.use("physrev.mplstyle")
 
 
 class SpectralMixtureKernel(tinygp.kernels.Kernel):
-    def __init__(self, weight, scale, freq):
+    def __init__(self, weight, scale, freq, data_scale=1.0):
         self.weight = jnp.atleast_1d(weight)
         self.scale = jnp.atleast_1d(scale)
         self.freq = jnp.atleast_1d(freq)
+        self.data_scale = data_scale
 
     def evaluate(self, X1, X2):
         tau = jnp.atleast_1d(jnp.abs(X1 - X2))[..., None]
 
-        return jnp.sum(
+        return self.data_scale * jnp.sum(
             self.weight
             * jnp.cos(2 * jnp.pi * self.freq * tau)
             * jnp.prod(jnp.exp(-2 * jnp.pi**2 * tau**2 * self.scale), axis=0)
@@ -46,15 +47,16 @@ class SpectralMixtureKernel(tinygp.kernels.Kernel):
 class SpectralMixtureProcess(object):
     def __init__(self, *args, **kwargs):
         self.kernel = SpectralMixtureKernel
-        self.mean_function = kwargs.pop("mean_function", linear)
+        self.mean_function = kwargs.pop("mean_function", power)
 
         self.file_root = kwargs.pop("file_root", "samples")
         self.base_dir = kwargs.pop("base_dir", "chains")
 
         self.kernel_n_max = kwargs.pop("kernel_n_max", 1)
-        self.kernel_n_prior = UniformPrior(0, self.kernel_n_max + 1)
+        # self.kernel_n_prior = UniformPrior(0, self.kernel_n_max + 1)
+        self.kernel_n_prior = ExponentialPrior(2)
 
-        self.mean_n = kwargs.pop("mean_n", 2)
+        self.mean_n = kwargs.pop("mean_n", 4)
 
         self.X = kwargs.pop("X")
         self.Y = kwargs.pop("Y")
@@ -67,10 +69,10 @@ class SpectralMixtureProcess(object):
             "scale_prior",
             UniformPrior(-10, np.log(self.fundamental_freq**2)),
         )
-
+        self.scale_prior = GaussianPrior(0, 2)
         self.noise_prior = kwargs.pop("noise_prior", GaussianPrior(0, 2))
         self.weight_prior = kwargs.pop("weight_prior", GaussianPrior(0, 2))
-        self.weight_prior = ExponentialPrior(1)
+        # self.weight_prior = ExponentialPrior(1)
         self.freq_prior = SortedUniformPrior(
             self.fundamental_freq, self.sampling_freq * 0.5
         )
@@ -82,11 +84,12 @@ class SpectralMixtureProcess(object):
         self.plot_dir = None
         self.posterior = None
 
+    # @partial(jit, static_argnums=(0))
     def process(self, kernel_params, diag, mean):
         process = tinygp.GaussianProcess(
             self.kernel(*kernel_params),
             self.X,
-            mean=partial(self.mean_function, mean),
+            # mean=partial(self.mean_function, mean),
             diag=diag,
         )  # noise=noise.Diagonal(diag*np.ones_like(self.Y)))
         return process
@@ -109,38 +112,56 @@ class SpectralMixtureProcess(object):
         )[1]
         return gp.sample(jax.random.PRNGKey(0), shape=(100,))
 
+    @partial(jit, static_argnums=(0,))
+    def predict_logprob(self, x_new, y_new, kernel_params, diag, mean, data_scale=1.0):
+        gp = self.process(kernel_params, diag, mean).condition(
+            self.Y, x_new, diag=diag
+        )[1]
+        return gp.log_probability(y_new)
+
+    @partial(jit, static_argnums=(0,))
+    def predict_logprob_2(
+        self, x_new, y_new, kernel_params, diag, mean, data_scale=1.0
+    ):
+        gp = self.process(kernel_params, diag, mean).condition(self.Y, x_new)[1]
+        return gp.log_probability(y_new)
+
     def flat_to_tree(self, theta):
-        sample = self.fold_function(theta.astype(jnp.float64))
+        sample = self.fold_function(theta.astype(jnp.float32))
+        # sample = self.fold_function(theta)
         # print(theta)
         # kernel_params = [sample["weight"],np.exp(sample["scale"]), np.concatenate([sample["freq"],[self.sampling_freq]])]
         # kernel_params = [jnp.exp(sample["weight"]),
         #                  jnp.exp(sample["scale"]), sample["freq"]]
         # kernel_params = [jnp.exp(sample["weight"]),
         #                  jnp.ones_like(sample["weight"])*1e-5, sample["freq"]]
-        kernel_choice = sample["kernel_choice"].astype(int)
+        # kernel_choice = sample["kernel_choice"].astype(int)
+        kernel_choice = -1
         # kernel_params = [
         #     jnp.exp(sample["weight"])[:kernel_choice],
         #     (jnp.ones_like(sample["weight"]) * 1e-5)[:kernel_choice],
         #     sample["freq"][:kernel_choice],
         # ]
         kernel_params = [
-            sample["weight"][:kernel_choice],
+            jnp.exp(sample["weight"][:kernel_choice]),
             jnp.exp(sample["scale"][:kernel_choice]),
             sample["freq"][:kernel_choice],
         ]
         diag = jnp.exp(sample["diag"])
-        mean = sample["mean"]
+        # mean = sample["mean"]
+        mean = 0
         return kernel_params, diag, mean
 
     def prior(self, theta):
-        sample = self.fold_function(theta.astype(jnp.float64))
+        sample = self.fold_function(theta.astype(jnp.float32))
+        # sample = self.fold_function(theta)
         sample["weight"] = self.weight_prior(sample["weight"])
         sample["scale"] = self.scale_prior(sample["scale"])
         sample["freq"] = self.freq_prior(sample["freq"])
-        sample["mean"] = self.mean_prior(sample["mean"])
+        # sample["mean"] = self.mean_prior(sample["mean"])
         sample["diag"] = self.noise_prior(sample["diag"])
         # sample["mean_choice"] = self.n_mean_prior(sample["mean_choice"])
-        sample["kernel_choice"] = self.kernel_n_prior(sample["kernel_choice"])
+        # sample["kernel_choice"] = self.kernel_n_prior(sample["kernel_choice"])
         t, _ = ravel_pytree(sample)
         return t
 
@@ -151,8 +172,8 @@ class SpectralMixtureProcess(object):
         params["freq"] = np.random.rand(n)
         params["diag"] = np.random.rand()
         # params["mean_choice"] = np.random.randn()
-        params["kernel_choice"] = np.random.rand()
-        params["mean"] = np.random.rand(self.mean_n)
+        # params["kernel_choice"] = np.random.rand()
+        # params["mean"] = np.random.rand(self.mean_n)
         self.param_names, _ = self.create_param_names(params)
         return ravel_pytree(params)
 
@@ -177,7 +198,7 @@ class SpectralMixtureProcess(object):
         settings = PolyChordSettings(self.ndims, 0)
         settings.nlive = kwargs.pop("nlive", settings.nlive)
         settings.num_repeats = kwargs.pop("fac_repeat", 2) * self.ndims
-        settings.nprior = kwargs.pop("fac_prior", 5) * settings.nlive
+        settings.nprior = kwargs.pop("fac_prior", 100) * settings.nlive
 
         if kwargs:
             raise TypeError("Unexpected **kwargs: %r" % kwargs)
@@ -337,38 +358,52 @@ class SpectralMixtureProcess(object):
         a.set_xlim(xtrans(x_plot.min()), xtrans(x_plot.max()))
         a.set_ylabel(r"$y$")
         a.set_xlabel(r"$x$")
-        # a.text(
-        #     0.95,
-        #     0.05,
-        #     r"SM Ours",
-        #     transform=a.transAxes,
-        #     ha="right",
-        #     va="bottom",
-        #     fontsize=6,
-        # )
+        a.text(
+            0.95,
+            0.05,
+            r"S20",
+            transform=a.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=6,
+        )
+        a.text(
+            0.05,
+            0.9,
+            r"\textsc{%s}" % filename,
+            transform=a.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=6,
+        )
         f.tight_layout(pad=0.2)
         f.savefig(os.path.join(self.plot_dir, "plot_observed_%s.pdf" % filename))
         f.savefig(os.path.join(self.plot_dir, "plot_observed_%s.png" % filename))
 
     def nlpd(self, xtest, ytest, ytrans, y_std):
+        self.read_samples()
         from scipy.stats import norm
 
         samps = self.posterior.sample(200).to_numpy()[..., :-3]
         logps = []
-
+        # logps_2=[]
         for i, s in enumerate(samps):
-            y = self.predict(xtest, *self.flat_to_tree(s))
-            logps.append(
-                norm(loc=ytrans(y[0]), scale=jnp.sqrt(y[1] * y_std**2)).logpdf(
-                    ytrans(ytest)
-                )
-            )
+            y = self.predict_logprob(xtest, ytest, *self.flat_to_tree(s))
+            logps.append(y)
+            # y = self.predict(xtest, *self.flat_to_tree(s))
+            # logps_2.append(
+            #     norm(
+            #         loc=ytrans(y[0]), scale=jnp.sqrt(y[1] * y_std**2)
+            #     ).logpdf(ytrans(ytest))
+            # )
 
         logps = np.asarray(logps)
-        # print(logps)
-        return (
-            logsumexp(np.asarray(logps), axis=0) - np.log(np.asarray(logps).shape[0])
-        ).mean()
+        # # print(logps)
+        # return (
+        #     logsumexp(np.asarray(logps), axis=0)
+        #     - np.log(np.asarray(logps).shape[0])
+        # ).mean()
+        return np.mean(logps) / len(xtest)
 
     def plot_n_components(self):
         if not self.plot_dir:

@@ -10,6 +10,10 @@ from polygp import SpectralMixtureProcess
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
 
+from matplotlib import pyplot as plt
+
+plt.style.use("computermodern")
+
 
 def data_load(filename, datadir):
     df = pd.read_csv(os.path.join(datadir, filename))
@@ -17,7 +21,7 @@ def data_load(filename, datadir):
     x = df["x"].to_numpy()
     y = df["y"].to_numpy()
 
-    cut = int(len(x) * 0.3)
+    cut = int(len(x) * 0.6)
 
     x_cut = x[:cut].max()
     y_mean = y[:cut].mean()
@@ -67,14 +71,15 @@ if __name__ == "__main__":
                 smp = SpectralMixtureProcess(
                     X=x_train,
                     Y=y_train,
-                    kernel_n_max=4,
+                    kernel_n_max=6,
                     base_dir=base_dir,
                     file_root=cleaned_filename,
                 )
-                smp.train(nlive=nlive)
+                # output = smp.train(nlive=nlive)
                 # params = build_and_train_gp(x_train, y_train)
                 if rank == 0:
                     smp.plot_corners()
+                    smp.plot_n_components()
 
                     def xtrans(x):
                         return x * (x_cut - x_min) + x_min
@@ -91,6 +96,8 @@ if __name__ == "__main__":
                     )
                     nlpd = smp.nlpd(x_test, y_test, ytrans, y_std)
                     print(nlpd)
-                    results_file.write(f"{cleaned_filename}: {nlpd}\n")
-
+                    results_file.write(
+                        f"{cleaned_filename}: {nlpd:.2f} \t {output.nlike:.2e} \t {output.logZ :.2f}\n"
+                    )
+            # break
     results_file.close()
