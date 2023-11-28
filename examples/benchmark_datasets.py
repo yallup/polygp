@@ -1,6 +1,7 @@
 import os
 import sys
 
+import numpy as np
 import pandas as pd
 import tqdm
 from mpi4py import MPI
@@ -12,7 +13,7 @@ rank = comm.Get_rank()
 
 from matplotlib import pyplot as plt
 
-plt.style.use("computermodern")
+plt.style.use("computermodern.mplstyle")
 
 
 def data_load(filename, datadir):
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     base_dir = "chains_ours"
     os.makedirs(base_dir, exist_ok=True)
     datadir = "data"
-    nlive = 100
+    nlive = 200
     results_file = open(os.path.join(base_dir, "results.txt"), "w")
     filenames = sorted(
         os.listdir(datadir),
@@ -54,6 +55,7 @@ if __name__ == "__main__":
     )
     for filename in tqdm.tqdm(filenames):
         if os.path.isfile(os.path.join(datadir, filename)):
+            # if "mauna" not in filename: continue
             # print(filename)
             if "csv" in filename:
                 cleaned_filename = filename.split("-")[1].split(".")[0]
@@ -71,7 +73,7 @@ if __name__ == "__main__":
                 smp = SpectralMixtureProcess(
                     X=x_train,
                     Y=y_train,
-                    kernel_n_max=6,
+                    kernel_n_max=4,
                     base_dir=base_dir,
                     file_root=cleaned_filename,
                 )
@@ -88,8 +90,10 @@ if __name__ == "__main__":
                         return y * y_std + y_mean
 
                     smp.plot_observed(
+                        # np.asarray([1.1, 10.0]),
                         x_test,
                         y_test,
+                        # np.asarray([0.0, 0.0]),
                         xtrans=xtrans,
                         ytrans=ytrans,
                         filename=cleaned_filename,
@@ -99,5 +103,4 @@ if __name__ == "__main__":
                     results_file.write(
                         f"{cleaned_filename}: {nlpd:.2f} \t {output.nlike:.2e} \t {output.logZ :.2f}\n"
                     )
-            # break
     results_file.close()
