@@ -1,1 +1,6 @@
-from .polygp import SpectralMixtureProcess
+from .polygp import (
+    NonStationarySpectralMixtureProcess,
+    SparseSpectralMixtureProcess,
+    SpectralMixtureProcess,
+    StaticSpectralMixtureProcess,
+)

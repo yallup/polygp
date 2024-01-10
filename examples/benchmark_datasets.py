@@ -1,12 +1,18 @@
 import os
 import sys
 
+import jax
 import numpy as np
 import pandas as pd
 import tqdm
 from mpi4py import MPI
 
-from polygp import SpectralMixtureProcess
+from polygp import (
+    NonStationarySpectralMixtureProcess,
+    SparseSpectralMixtureProcess,
+    SpectralMixtureProcess,
+    StaticSpectralMixtureProcess,
+)
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -55,7 +61,8 @@ if __name__ == "__main__":
     )
     for filename in tqdm.tqdm(filenames):
         if os.path.isfile(os.path.join(datadir, filename)):
-            # if "mauna" not in filename: continue
+            if "radio" not in filename:
+                continue
             # print(filename)
             if "csv" in filename:
                 cleaned_filename = filename.split("-")[1].split(".")[0]
@@ -71,12 +78,14 @@ if __name__ == "__main__":
                     x_min,
                 ) = data_load(filename, datadir)
                 smp = SpectralMixtureProcess(
+                    # smp =StaticSpectralMixtureProcess(
                     X=x_train,
                     Y=y_train,
-                    kernel_n_max=4,
+                    kernel_n_max=6,
                     base_dir=base_dir,
                     file_root=cleaned_filename,
                 )
+                # with jax.disable_jit():
                 output = smp.train(nlive=nlive, fac_repeat=2)
                 # params = build_and_train_gp(x_train, y_train)
                 if rank == 0:

@@ -28,7 +28,7 @@ def constant(theta, x):
 
 @jax.jit
 def linear(theta, x):
-    return theta[0] * (x + theta[2]) + theta[1]
+    return theta[0] * (x) + theta[1]
 
 
 # @jax.jit
@@ -41,6 +41,7 @@ def power(theta, x):
     return theta[0] * (x + theta[3]) ** theta[1] + theta[2]
 
 
-# @jax.jit
-# def power_shift(theta, x):
-#     return theta[0] * (x) ** theta[1] + theta[2]
+@jax.jit
+def power_shift(theta, x):
+    return theta[0] * (x) ** theta[1] + theta[2]
+    # return (x) ** theta[0] + theta[1]
