@@ -77,8 +77,8 @@ if __name__ == "__main__":
                     y_std,
                     x_min,
                 ) = data_load(filename, datadir)
-                smp = SpectralMixtureProcess(
-                    # smp =StaticSpectralMixtureProcess(
+                # smp = SpectralMixtureProcess(
+                smp = StaticSpectralMixtureProcess(
                     X=x_train,
                     Y=y_train,
                     kernel_n_max=6,

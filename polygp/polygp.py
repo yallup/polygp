@@ -300,7 +300,7 @@ class SpectralMixtureProcess(object):
         settings = PolyChordSettings(self.ndims, 0)
         settings.nlive = kwargs.pop("nlive", settings.nlive)
         settings.num_repeats = kwargs.pop("fac_repeat", 2) * self.ndims
-        settings.nprior = kwargs.pop("fac_prior", 100) * settings.nlive
+        settings.nprior = kwargs.pop("fac_prior", 10) * settings.nlive
 
         if kwargs:
             raise TypeError("Unexpected **kwargs: %r" % kwargs)
