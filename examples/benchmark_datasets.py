@@ -51,7 +51,7 @@ if __name__ == "__main__":
     base_dir = "chains_ours"
     os.makedirs(base_dir, exist_ok=True)
     datadir = "data"
-    nlive = 200
+    nlive = 100
     results_file = open(os.path.join(base_dir, "results.txt"), "w")
     filenames = sorted(
         os.listdir(datadir),
@@ -61,8 +61,8 @@ if __name__ == "__main__":
     )
     for filename in tqdm.tqdm(filenames):
         if os.path.isfile(os.path.join(datadir, filename)):
-            if "radio" not in filename:
-                continue
+            # if "airline" not in filename:
+            #     continue
             # print(filename)
             if "csv" in filename:
                 cleaned_filename = filename.split("-")[1].split(".")[0]
@@ -77,8 +77,8 @@ if __name__ == "__main__":
                     y_std,
                     x_min,
                 ) = data_load(filename, datadir)
-                # smp = SpectralMixtureProcess(
-                smp = StaticSpectralMixtureProcess(
+                smp = SpectralMixtureProcess(
+                    # smp = StaticSpectralMixtureProcess(
                     X=x_train,
                     Y=y_train,
                     kernel_n_max=6,
@@ -107,9 +107,9 @@ if __name__ == "__main__":
                         ytrans=ytrans,
                         filename=cleaned_filename,
                     )
-                    nlpd = smp.nlpd(x_test, y_test, ytrans, y_std)
+                    mse, nlpd, true_nlpd = smp.nlpd(x_test, y_test, ytrans, y_std)
                     print(nlpd)
                     results_file.write(
-                        f"{cleaned_filename}: {nlpd:.2f} \t {output.nlike:.2e} \t {output.logZ :.2f}\n"
+                        f"{cleaned_filename}: {mse:.2f} \t {nlpd:.2f} \t {true_nlpd:.2f} \t {output.nlike:.2e} \t {output.logZ :.2f}\n"
                     )
     results_file.close()

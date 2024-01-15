@@ -6,7 +6,7 @@ import pandas as pd
 import tqdm
 from mpi4py import MPI
 
-from polygp import SpectralMixtureProcess
+from polygp import SpectralMixtureProcess, StaticSpectralMixtureProcess
 
 comm = MPI.COMM_WORLD
 rank = comm.Get_rank()
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     base_dir = "chains"
     os.makedirs(base_dir, exist_ok=True)
     datadir = "data"
-    nlive = 50
+    nlive = 200
 
     (
         x_train,
@@ -62,6 +62,7 @@ if __name__ == "__main__":
     x_test = np.asarray([0.0, 1.1, 0.0])
     y_test = np.asarray([0.0, 0.0, 0.0])
     smp = SpectralMixtureProcess(
+        # smp = StaticSpectralMixtureProcess(
         X=x_train,
         Y=y_train,
         kernel_n_max=4,
