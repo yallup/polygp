@@ -8,10 +8,10 @@ import tqdm
 from mpi4py import MPI
 
 from polygp import (
-    NonStationarySpectralMixtureProcess,
-    SparseSpectralMixtureProcess,
     SpectralMixtureProcess,
+    SemiStaticSpectralMixtureProcess,
     StaticSpectralMixtureProcess,
+    SparseSemiStaticSpectralMixtureProcess
 )
 
 comm = MPI.COMM_WORLD
@@ -48,7 +48,7 @@ def data_load(filename, datadir):
 
 
 if __name__ == "__main__":
-    base_dir = "chains_ours"
+    base_dir = "chains_ours_final"
     os.makedirs(base_dir, exist_ok=True)
     datadir = "data"
     nlive = 100
@@ -77,7 +77,8 @@ if __name__ == "__main__":
                     y_std,
                     x_min,
                 ) = data_load(filename, datadir)
-                smp = SpectralMixtureProcess(
+                # smp = SpectralMixtureProcess(
+                smp = SemiStaticSpectralMixtureProcess(
                     # smp = StaticSpectralMixtureProcess(
                     X=x_train,
                     Y=y_train,
@@ -85,6 +86,13 @@ if __name__ == "__main__":
                     base_dir=base_dir,
                     file_root=cleaned_filename,
                 )
+                # smp = SparseSemiStaticSpectralMixtureProcess(
+                #     X=x_train,
+                #     Y=y_train,
+                #     kernel_n_max=6,
+                #     base_dir=base_dir,
+                #     file_root=cleaned_filename,
+                # )
                 # with jax.disable_jit():
                 output = smp.train(nlive=nlive, fac_repeat=2)
                 # params = build_and_train_gp(x_train, y_train)

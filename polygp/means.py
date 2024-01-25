@@ -43,5 +43,5 @@ def power(theta, x):
 
 @jax.jit
 def power_shift(theta, x):
-    return theta[0] * (x) ** theta[1] + theta[2]
+    return theta[1] * (x) ** theta[2] + theta[0]
     # return (x) ** theta[0] + theta[1]
