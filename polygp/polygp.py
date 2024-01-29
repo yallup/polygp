@@ -15,12 +15,13 @@ from jax import jit
 from jax.config import config
 from jax.flatten_util import ravel_pytree
 from jax.tree_util import tree_flatten
+
 # from jaxknots.knots import fixknots
 from pypolychord import PolyChordSettings, run_polychord
 from pypolychord.priors import GaussianPrior, SortedUniformPrior, UniformPrior
 from scipy.special import logsumexp
 from tinygp.helpers import JAXArray
-from tinygp.kernels import ExpSquared, RationalQuadratic
+from tinygp.kernels import DotProduct, ExpSquared, Polynomial, RationalQuadratic
 
 from polygp.means import (
     constant,
@@ -57,25 +58,54 @@ class SpectralMixtureKernel(tinygp.kernels.Kernel):
             )
         )
 
+
 class MixedSpectralMixtureKernel(tinygp.kernels.Kernel):
-    def __init__(self, weight, scale, freq, data_scale=1.0):
-        self.weight = jnp.atleast_1d(weight[...,0])
-        self.scale = jnp.atleast_1d(scale)
-        self.freq = jnp.atleast_1d(freq)
-        
+    def __init__(self, weight, scale, freq, lin_len, lin_scale, order):
+        self.weight = jnp.atleast_1d(weight[0])
+        self.scale = jnp.atleast_1d(scale[0])
+        self.freq = jnp.atleast_1d(freq[0])
+        self.weight_lin = jnp.atleast_1d(weight[1])
+        self.scale_lin = jnp.atleast_1d(scale[1])
+        self.freq_lin = jnp.atleast_1d(freq[1])
+        self.lin_scale = jnp.atleast_1d(lin_scale)
+        self.lin_len = jnp.atleast_1d(lin_len)
+        self.order = order
+
     def evaluate(self, X1, X2):
         tau = jnp.atleast_1d(jnp.abs(X1 - X2))[..., None]
-        tau_p = jnp.atleast_1d(jnp.abs(X1 - X2))[..., None]
+        taus = (
+            (X1[..., None] / self.lin_len) @ (X2[..., None] / self.lin_len)
+            + jnp.square(self.lin_scale)
+        ) ** self.order
+        tau_lin = taus[None, ...]
 
-        return (
-            self.data_scale
-            / (len(self.freq) + 1)
-            * jnp.sum(
-                self.weight
-                * jnp.cos(2 * jnp.pi * self.freq * tau)
-                * jnp.prod(jnp.exp(-2 * jnp.pi**2 * tau**2 * self.scale), axis=0)
+        # stationary = jnp.sum(
+        #     self.weight
+        #     * jnp.prod(
+        #         jnp.cos(2 * jnp.pi * self.freq * tau)
+        #         * jnp.exp(-2 * jnp.pi**2 * tau**2 * self.scale),
+        #         axis=0,
+        #     )
+        # )
+        # non_stationary = jnp.sum(
+        #     self.weight_lin
+        #     * jnp.prod(
+        #         jnp.cos(2 * jnp.pi * self.freq_lin * tau_lin)
+        #         * jnp.exp(-2 * jnp.pi**2 * tau_lin**2 * self.scale_lin),
+        #         axis=0,
+        #     )
+        # )
+        non_stationary = jnp.sum(
+            self.weight_lin
+            * tau_lin
+            * jnp.prod(
+                jnp.cos(2 * jnp.pi * self.freq_lin * tau)
+                * jnp.exp(-2 * jnp.pi**2 * tau**2 * self.scale_lin),
+                axis=0,
             )
         )
+        return non_stationary
+        # return stationary + non_stationary
 
 
 class SparseSpectralKernel(tinygp.kernels.Kernel):
@@ -90,9 +120,8 @@ class SparseSpectralKernel(tinygp.kernels.Kernel):
         return (
             1
             / (len(self.freq) + 1)
-            * jnp.sum( self.weight * jnp.cos(2 * jnp.pi * self.freq * tau), axis=-1)
+            * jnp.sum(self.weight * jnp.cos(2 * jnp.pi * self.freq * tau), axis=-1)
         )
-
 
 
 class NonStationarySpectralMixtureKernel(tinygp.kernels.Kernel):
@@ -106,6 +135,7 @@ class NonStationarySpectralMixtureKernel(tinygp.kernels.Kernel):
 
     def evaluate(self, X1, X2):
         tau = jnp.atleast_1d(jnp.abs(X1 - X2))[..., None]
+
         def phi(X):
             return jnp.asarray(
                 [
@@ -115,13 +145,13 @@ class NonStationarySpectralMixtureKernel(tinygp.kernels.Kernel):
                     + jnp.sin(2 * jnp.pi * self.freq_mix * X[..., None]),
                 ]
             )
+
         phiTphi = jnp.sum(phi(X1) * phi(X2), axis=0)
         return jnp.sum(
             self.weight
             * phiTphi
             * jnp.prod(jnp.exp(-2 * jnp.pi**2 * tau**2 * self.scale), axis=0)
         )
-
 
 
 class SpectralMixtureProcess(object):
@@ -145,8 +175,7 @@ class SpectralMixtureProcess(object):
         # self.n_mean_prior = UniformPrior(0, self.n_mean)
 
         self.num_mean_components = 3
-        self.n_mean_prior = UniformPrior(0,self.num_mean_components+1)
-
+        self.n_mean_prior = UniformPrior(0, self.num_mean_components + 1)
 
         self.X = kwargs.pop("X")
         self.Y = kwargs.pop("Y")
@@ -160,13 +189,11 @@ class SpectralMixtureProcess(object):
         self.noise_prior = kwargs.pop("noise_prior", GaussianPrior(0, 2))
         self.weight_prior = kwargs.pop("weight_prior", GaussianPrior(0, 2))
         # self.weight_prior = ExponentialPrior(1)
-        # self.freq_prior = SortedUniformPrior(
-        #     self.fundamental_freq , self.sampling_freq * 0.5
-        # )
         self.freq_prior = SortedUniformPrior(
-            0 , self.sampling_freq 
+            self.fundamental_freq, self.sampling_freq * 0.5
         )
-        self.mean_prior = kwargs.pop("mean_prior", GaussianPrior(0, 2))
+        # self.freq_prior = SortedUniformPrior(0, self.sampling_freq)
+        self.mean_prior = kwargs.pop("mean_prior", GaussianPrior(0, 1))
         # self.mean_prior = kwargs.pop("mean_prior", UniformPrior(-5, 5))
 
         self.init_params, self.fold_function = self.initialize(self.kernel_n_max)
@@ -223,7 +250,7 @@ class SpectralMixtureProcess(object):
         diag = jnp.exp(sample["diag"])
         mean = sample["mean"]
         mean = np.array(mean)
-        mean[mean_choice:]=0.0
+        mean[mean_choice:] = 0.0
         return kernel_params, diag, mean
 
     def prior(self, theta):
@@ -253,13 +280,18 @@ class SpectralMixtureProcess(object):
     def create_param_names(self, params):
         name_map = {
             "weight": r"\ln w_{}",
+            "weight_lin": r"\ln w'_{}",
             "scale": r"\ln \sigma_{}",
+            "scale_lin": r"\ln \sigma'_{}",
             "freq": r"\mu_{}",
-            "freq_mix": r"\mu'_{}",
+            "freq_lin": r"\mu'_{}",
             "diag": r"\delta_{}",
-            "mean_choice": r"\alpha_m",
             "kernel_choice": r"\alpha_k",
+            "kernel_choice_lin": r"\alpha_k'",
             "mean": r"\phi_{}",
+            "lin_var": r"\phi'_{}",
+            "lin_len": r"\phi''_{}",
+            "order": r"\phi'''_{}",
         }
         temp_name_dict = {}
         for k, v in params.items():
@@ -400,7 +432,6 @@ class SpectralMixtureProcess(object):
         y_std_samples = []
         diags = []
         # data = []
-        H0 = []
         for i, s in enumerate(samps):
             # data.append(self.condition(x_plot, *self.flat_to_tree(s)))
             y = self.predict(x_plot, *self.flat_to_tree(s))
@@ -633,9 +664,7 @@ class SpectralMixtureProcess(object):
             f.savefig(os.path.join(self.plot_dir, "corner_{}.png").format(kp))
 
 
-
 class StaticSpectralMixtureProcess(SpectralMixtureProcess):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, mean_function=null, num_mean_components=0, **kwargs)
 
@@ -710,8 +739,152 @@ class SemiStaticSpectralMixtureProcess(SpectralMixtureProcess):
         return ravel_pytree(params)
 
 
-class SparseSemiStaticSpectralMixtureProcess(SpectralMixtureProcess):
+class MixedSpectralMixtureProcess(SpectralMixtureProcess):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, mean_function=null, num_mean_components=0, **kwargs)
+        self.kernel = kwargs.pop("kernel", MixedSpectralMixtureKernel)
 
+    def flat_to_tree(self, theta):
+        sample = self.fold_function(theta.astype(jnp.float32))
+
+        kernel_choice = sample["kernel_choice"].astype(int)
+        kernel_choice_lin = sample["kernel_choice_lin"].astype(int)
+
+        weights = jnp.exp(sample["weight"]).at[kernel_choice:].set(0.0)
+        weights_lin = jnp.exp(sample["weight_lin"]).at[kernel_choice_lin:].set(0.0)
+        scale = jnp.exp(sample["scale"]).at[kernel_choice:].set(0.0)
+        scale_lin = jnp.exp(sample["scale_lin"]).at[kernel_choice_lin:].set(0.0)
+        freq = sample["freq"].at[kernel_choice:].set(0.0)
+        freq_lin = sample["freq_lin"].at[kernel_choice_lin:].set(0.0)
+
+        kernel_params = [
+            jnp.vstack([weights, weights_lin]),
+            jnp.vstack([scale, scale_lin]),
+            jnp.vstack([freq, freq_lin]),
+            jnp.exp(sample["lin_len"]),
+            sample["lin_var"],
+            sample["order"],
+        ]
+        diag = jnp.exp(sample["diag"])
+        # mean = sample["mean"]
+        mean = 0.0
+        return kernel_params, diag, mean
+
+    def prior(self, theta):
+        sample = self.fold_function(theta.astype(jnp.float32))
+        sample["weight"] = self.weight_prior(sample["weight"])
+        sample["weight_lin"] = self.weight_prior(sample["weight_lin"])
+        sample["scale"] = self.scale_prior(sample["scale"])
+        sample["scale_lin"] = self.scale_prior(sample["scale_lin"])
+        sample["freq"] = self.freq_prior(sample["freq"])
+        sample["freq_lin"] = self.freq_prior(sample["freq_lin"])
+        sample["diag"] = self.noise_prior(sample["diag"])
+        sample["lin_var"] = self.weight_prior(sample["lin_var"])
+        sample["lin_len"] = self.scale_prior(sample["lin_len"])
+        sample["order"] = self.mean_prior(sample["order"])
+        # sample["mean_choice"] = self.n_mean_prior(sample["mean_choice"])
+        sample["kernel_choice"] = self.kernel_n_prior(sample["kernel_choice"])
+        sample["kernel_choice_lin"] = self.kernel_n_prior(sample["kernel_choice_lin"])
+        # sample["mean"] = self.mean_prior(sample["mean"])
+        t, _ = ravel_pytree(sample)
+        return t
+
+    def initialize(self, n):
+        params = {}
+        params["weight"] = np.random.rand(n)
+        params["weight_lin"] = np.random.rand(n)
+        params["scale"] = np.random.rand(n)
+        params["scale_lin"] = np.random.rand(n)
+        params["freq"] = np.random.rand(n)
+        params["freq_lin"] = np.random.rand(n)
+        params["lin_var"] = np.random.rand(n)
+        params["lin_len"] = np.random.rand(n)
+        params["order"] = np.random.rand(n)
+
+        params["diag"] = np.random.rand()
+        # params["mean_choice"] = np.random.randn()
+        params["kernel_choice"] = np.random.rand()
+        params["kernel_choice_lin"] = np.random.rand()
+        # params["mean"] = np.random.rand(self.num_mean_components)
+        self.param_names, _ = self.create_param_names(params)
+        return ravel_pytree(params)
+
+
+# class MixedSpectralMixtureProcess(SpectralMixtureProcess):
+#     def __init__(self, *args, **kwargs):
+#         super().__init__(
+#             *args, mean_function=constant, num_mean_components=1, **kwargs
+#         )
+#         self.kernel = kwargs.pop("kernel", MixedSpectralMixtureKernel)
+
+#     def flat_to_tree(self, theta):
+#         sample = self.fold_function(theta.astype(jnp.float32))
+
+#         kernel_choice = sample["kernel_choice"].astype(int)
+#         kernel_choice_lin = sample["kernel_choice_lin"].astype(int)
+
+#         weights = jnp.exp(sample["weight"]).at[kernel_choice:].set(0.0)
+#         weights_lin = (
+#             jnp.exp(sample["weight_lin"]).at[kernel_choice_lin:].set(0.0)
+#         )
+#         scale = jnp.exp(sample["scale"]).at[kernel_choice:].set(0.0)
+#         scale_lin = (
+#             jnp.exp(sample["scale_lin"]).at[kernel_choice_lin:].set(0.0)
+#         )
+#         freq = sample["freq"].at[kernel_choice:].set(0.0)
+#         freq_lin = sample["freq_lin"].at[kernel_choice_lin:].set(0.0)
+
+#         kernel_params = [
+#             jnp.vstack([weights, weights_lin]),
+#             jnp.vstack([scale, scale_lin]),
+#             jnp.vstack([freq, freq_lin]),
+#             jnp.exp(sample["lin_var"]),
+#             jnp.exp(sample["lin_len"]),
+#         ]
+#         diag = jnp.exp(sample["diag"])
+#         mean = sample["mean"]
+#         return kernel_params, diag, mean
+
+#     def prior(self, theta):
+#         sample = self.fold_function(theta.astype(jnp.float32))
+#         sample["weight"] = self.weight_prior(sample["weight"])
+#         sample["weight_lin"] = self.weight_prior(sample["weight_lin"])
+#         sample["scale"] = self.scale_prior(sample["scale"])
+#         sample["scale_lin"] = self.scale_prior(sample["scale_lin"])
+#         sample["freq"] = self.freq_prior(sample["freq"])
+#         sample["freq_lin"] = self.freq_prior(sample["freq_lin"])
+#         sample["diag"] = self.noise_prior(sample["diag"])
+#         sample["lin_var"] = self.weight_prior(sample["lin_var"])
+#         sample["lin_len"] = self.scale_prior(sample["lin_len"])
+#         # sample["mean_choice"] = self.n_mean_prior(sample["mean_choice"])
+#         sample["kernel_choice"] = self.kernel_n_prior(sample["kernel_choice"])
+#         sample["kernel_choice_lin"] = self.kernel_n_prior(
+#             sample["kernel_choice_lin"]
+#         )
+#         sample["mean"] = self.mean_prior(sample["mean"])
+#         t, _ = ravel_pytree(sample)
+#         return t
+
+#     def initialize(self, n):
+#         params = {}
+#         params["weight"] = np.random.rand(n)
+#         params["weight_lin"] = np.random.rand(n)
+#         params["scale"] = np.random.rand(n)
+#         params["scale_lin"] = np.random.rand(n)
+#         params["freq"] = np.random.rand(n)
+#         params["freq_lin"] = np.random.rand(n)
+#         params["lin_var"] = np.random.rand(n)
+#         params["lin_len"] = np.random.rand(n)
+#         params["diag"] = np.random.rand()
+#         # params["mean_choice"] = np.random.randn()
+#         params["kernel_choice"] = np.random.rand()
+#         params["kernel_choice_lin"] = np.random.rand()
+#         params["mean"] = np.random.rand(self.num_mean_components)
+#         self.param_names, _ = self.create_param_names(params)
+#         return ravel_pytree(params)
+
+
+class SparseSemiStaticSpectralMixtureProcess(SpectralMixtureProcess):
     def __init__(self, *args, **kwargs):
         self.kernel = kwargs.pop("kernel", SparseSpectralKernel)
         self.mean_function = kwargs.pop("mean_function", linear)
@@ -730,8 +903,7 @@ class SparseSemiStaticSpectralMixtureProcess(SpectralMixtureProcess):
         # self.n_mean_prior = UniformPrior(0, self.n_mean)
 
         self.num_mean_components = 2
-        self.n_mean_prior = UniformPrior(0,self.num_mean_components+1)
-
+        self.n_mean_prior = UniformPrior(0, self.num_mean_components + 1)
 
         self.X = kwargs.pop("X")
         self.Y = kwargs.pop("Y")
@@ -798,7 +970,6 @@ class SparseSemiStaticSpectralMixtureProcess(SpectralMixtureProcess):
         kernel_params = [
             sample["freq"][:kernel_choice],
             jnp.exp(sample["weight"])[:kernel_choice],
-
         ]
         diag = jnp.exp(sample["diag"])
         mean = sample["mean"]

@@ -8,10 +8,11 @@ import tqdm
 from mpi4py import MPI
 
 from polygp import (
-    SpectralMixtureProcess,
+    MixedSpectralMixtureProcess,
     SemiStaticSpectralMixtureProcess,
+    SparseSemiStaticSpectralMixtureProcess,
+    SpectralMixtureProcess,
     StaticSpectralMixtureProcess,
-    SparseSemiStaticSpectralMixtureProcess
 )
 
 comm = MPI.COMM_WORLD
@@ -78,11 +79,18 @@ if __name__ == "__main__":
                     x_min,
                 ) = data_load(filename, datadir)
                 # smp = SpectralMixtureProcess(
-                smp = SemiStaticSpectralMixtureProcess(
-                    # smp = StaticSpectralMixtureProcess(
+                # smp = SemiStaticSpectralMixtureProcess(
+                #     # smp = StaticSpectralMixtureProcess(
+                #     X=x_train,
+                #     Y=y_train,
+                #     kernel_n_max=6,
+                #     base_dir=base_dir,
+                #     file_root=cleaned_filename,
+                # )
+                smp = MixedSpectralMixtureProcess(
                     X=x_train,
                     Y=y_train,
-                    kernel_n_max=6,
+                    kernel_n_max=3,
                     base_dir=base_dir,
                     file_root=cleaned_filename,
                 )
@@ -93,8 +101,8 @@ if __name__ == "__main__":
                 #     base_dir=base_dir,
                 #     file_root=cleaned_filename,
                 # )
-                # with jax.disable_jit():
-                output = smp.train(nlive=nlive, fac_repeat=2)
+                with jax.disable_jit():
+                    output = smp.train(nlive=nlive, fac_repeat=2)
                 # params = build_and_train_gp(x_train, y_train)
                 if rank == 0:
                     smp.plot_corners()

@@ -1,6 +1,7 @@
 from .polygp import (
-    SpectralMixtureProcess,
+    MixedSpectralMixtureProcess,
     SemiStaticSpectralMixtureProcess,
+    SparseSemiStaticSpectralMixtureProcess,
+    SpectralMixtureProcess,
     StaticSpectralMixtureProcess,
-    SparseSemiStaticSpectralMixtureProcess
 )
